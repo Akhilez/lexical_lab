@@ -1,0 +1,53 @@
+cancertype:
+  nsclc: 0
+  sclc: 0
+  dcis: 0
+  non small cell lung cancer: 0
+  breast cancer: 13
+  lung cancer: 10
+  prostate cancer: 8
+  adenocarcinoma: 8
+  testicular cancer: 1
+  Kaposi's sarcoma: 1
+  colorectal cancer: 18
+  glioblastoma: 2
+  melanoma: 14
+  hodgkin lymphoma: 0
+  squamous cell carcinoma: 1
+medication:
+  pembrolizumab: 1
+  bicalutamide: 0
+  Gefitinib: 0
+  Pertuzumab: 0
+  Giotrif: 0
+  imfinzi: 0
+  tagrisso: 0
+  nivolumab: 1
+  lapatinib: 12
+  capecitabine: 6
+biomarkers:
+  metex14: 0
+  egfr: 0
+  kras: 0
+  braf: 0
+  ntrk: 0
+  nrg1: 0
+  her2: 0
+  her-2: 0
+  erbb2: 0
+  er-bb2: 0
+  brca: 0
+  brca1: 0
+  brca2: 0
+  brca3: 0
+  alk: 9
+  ret: 27
+  fgfr2: 0
+  her 2: 2
+  pr: 489
+  er: 1865
+  pgr: 1
+  met: 58
+procedure_therapy:
+  lumpectomy: 2
+  biopsy: 6

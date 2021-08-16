@@ -1,0 +1,4 @@
+cancertype:nsclc,sclc,dcis,non small cell lung cancer,breast cancer,lung cancer,prostate cancer,adenocarcinoma,testicular cancer,Kaposi's sarcoma,colorectal cancer,glioblastoma,melanoma,hodgkin lymphoma,squamous cell carcinoma
+medication:pembrolizumab,bicalutamide,Gefitinib,Pertuzumab,Giotrif,imfinzi,tagrisso,nivolumab,lapatinib,capecitabine
+biomarkers:metex14,egfr,kras,braf,ntrk,nrg1,her2,her-2,erbb2,er-bb2,brca,brca1,brca2,brca3,alk,ret,ntrk,fgfr2,her 2,pr,er,pgr,met
+procedure_therapy:lumpectomy,biopsy
