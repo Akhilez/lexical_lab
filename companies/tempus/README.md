@@ -1,23 +1,36 @@
+# Tempus NLP Assignment by Akhil Devarashetti
 
-Dear candidate,
 
-This is a take home that should not take more than 2 hours to complete.  In this 
-directory are just over 100 documents.  There is a reference file called 
-entity_names.txt that carry examples of entities we want to extract from these
-documents.  For intent of this exercise you only need to look for the listed 
-entities in this file.  However for cancertype not all cancertypes are listed, 
-you can reference  https://www.cancer.gov/types for the full list.
+## File structure
 
-Expected output:
-For each file that has entities of interest as specified in entity_names.txt
-produce tsv with 1 entity per line:
-filename	entity_type	extracted_entity
+- `named_entity_extractor.py` contains training and output tsv generation.
+- `dataset.py` contains few helper functions related to data reading.
+- `experiments.ipynb` contains some code experiments to see how the data looks.
+- `Data` dir contains the given data
+- `output` dir contains output files and saved models.
 
-e.g.
-j###.txt	cancertype	colon cancer
 
-Please submit in zipped file the following
-notebook/code for training and inference
-brief description of choice of approach for text processing and modeling
-extraction output as described above.
+## Getting Started
+Run the following commands to install spacy and set it up.
 
+```shell
+pip install -r requirements.txt
+spacy download en_core_web_lg
+```
+
+Once you're in the root dir, run `named_entity_extractor.py` 
+to get the output tsv file as well as a `displaCy.html` file that visualizes the results.
+
+## Improvements:
+
+If you look at the `output/displaCy.html` file in a browser,
+you'll find some right predictions and some wrong ones.
+The wrong ones are for example:
+
+- née Brooke: cancertype
+- Covid-19: medication
+
+As future improvements, I would do the following:
+
+- Train transformers using `en_core_web_trf`
+- Using more entity names in training data from internet.
