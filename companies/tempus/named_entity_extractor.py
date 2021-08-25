@@ -115,7 +115,9 @@ def main():
     )
 
     # Customize the model to learn custom named entities.
-    nlp = spacy.load(model_type)
+    nlp = spacy.load(
+        model_type, disable=["tagger", "parser", "attribute_ruler", "lemmatizer"]
+    )
     ner = nlp.get_pipe("ner")
     for category in entity_names:
         ner.add_label(category)
@@ -150,6 +152,8 @@ def main():
 
                 epoch_loss += losses["ner"]
                 n_batches += 1
+                print(".", end="")
+            print()
             epoch_loss /= n_batches
             print(f"Epoch: {epoch}\tLoss: {epoch_loss}")
 
