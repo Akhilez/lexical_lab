@@ -39,3 +39,4 @@ wandb==0.10.24
 moviepy==1.0.3
 imageio
 scikit-learn
+transformers

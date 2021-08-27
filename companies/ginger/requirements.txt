@@ -3,3 +3,5 @@ spacy
 scikit-learn
 pydantic
 tqdm
+transformers
+pyvis
