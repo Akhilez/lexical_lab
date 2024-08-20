@@ -10,8 +10,10 @@ setup(
         "transformers",
         "datasets",
         "sentencepiece",
+        "tiktoken",
         "tqdm",
         "numpy",
-        "tiktoken",
+        "matplotlib",
+        "pandas",
     ],
 )

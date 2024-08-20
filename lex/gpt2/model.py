@@ -1,5 +1,4 @@
 import inspect
-from copy import deepcopy
 from dataclasses import dataclass
 
 import torch
@@ -185,7 +184,8 @@ class GPT(nn.Module):
         return optimizer
 
     def generate(self, tokens, n=10, topk=50, temperature=1.0):
-        tokens = deepcopy(tokens)
+        # TODO: There must be some caching of the previous embeddings, right?
+        # tokens = deepcopy(tokens)
         for i in range(n):
             logits, _ = self(tokens)  # (B, T, vocab_size)
             # We only care out last token
@@ -195,31 +195,36 @@ class GPT(nn.Module):
             # Sample
             next_token_indices = torch.multinomial(topk_probs, num_samples=1)  # (B, 1)
             next_token = torch.gather(topk_indices, -1, next_token_indices)  # (B, 1)
-            tokens = torch.cat([tokens, next_token], dim=-1)
+            tokens = torch.cat([tokens, next_token.to(tokens.device)], dim=-1)
         return tokens
 
 
 if __name__ == '__main__':
     # Some bug
     import os; os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+    from common import get_device
+
+    device = get_device(rank=None)
 
     model = GPT(GPTConfig(block_size=512, vocab_size=1024, n_layer=4, n_head=2, n_embd=128))
+    model.to(device)
     print(model)
 
     from torchsummary import summary
-    summary(model, (128,))
+    summary(model, (128,), device=device)
 
     # Load pretrained model
     model = GPT.from_pretrained('gpt2')
     print(model)
-    summary(model, (1024,))
+    model.to(device)
+    summary(model, (1024,), device=device)
 
     # Generate
     import tiktoken
     tokenizer = tiktoken.get_encoding("gpt2")
     tokens = tokenizer.encode("Hello, I'm Indian, my name is")
     print(tokens)
-    tokens = torch.tensor([tokens] * 5).long()
+    tokens = torch.tensor([tokens] * 5).long().to(device)
     # import code; code.interact(local=locals())
 
     generated = model.generate(tokens, n=10, topk=50, temperature=1.0).to("cpu")
