@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="my_gpt",
+    name="lex",
     version="0.1",
     packages=["lex"],
     install_requires=[
