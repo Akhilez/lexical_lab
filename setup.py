@@ -15,5 +15,6 @@ setup(
         "numpy",
         "matplotlib",
         "pandas",
+        "jupyterlab"
     ],
 )
