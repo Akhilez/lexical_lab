@@ -24,15 +24,11 @@ class SimpleDataLoader:
         self.shard = None
         self.num_tokens_so_far = 0
         self.num_epochs_so_far = -1
-
-        # Load dataset metadata
         with open(join(data_root, 'metadata.json'), 'r') as f:
             metadata = json.load(f)
-
         self.shard_indices = torch.tensor(metadata[f"{self.mode}_shards"])
         # self.shard_indices.share_memory_()
-        self.current_shard = len(self.shard_indices)
-        self.finished_current_shard()
+        self.reset()
 
     def next_batch(self):
         end = min(self._current_token_index + self.batch_size * self.sequence_length, self._max_tokens_this_shard)
@@ -45,6 +41,12 @@ class SimpleDataLoader:
         if self._current_token_index >= self._max_tokens_this_shard:
             self.finished_current_shard()
         return xs, ys
+
+    def reset(self):
+        self.num_epochs_so_far = 0
+        self.num_epochs_so_far = -1
+        self.current_shard = len(self.shard_indices)
+        self.finished_current_shard()
 
     def finished_current_shard(self):
         self.current_shard += 1
@@ -73,7 +75,7 @@ class SimpleDataLoader:
 if __name__ == '__main__':
     dataloader = SimpleDataLoader(
         data_root="/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer-debug",
-        mode="train",  # train|val|test
+        mode="train",  # train|validation|test
         batch_size=4,
         sequence_length=128
     )

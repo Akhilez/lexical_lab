@@ -7,6 +7,7 @@ from transformers import LlamaTokenizerFast
 
 from common import get_device
 from lex.scratch.dataloaders.single_shard_dataloader import SingleShardDataLoader
+from lex.scratch.dataloaders.simple_dataloader import SimpleDataLoader
 from lex.scratch.models.vanilla_lm import AutoRegressiveLM
 
 
@@ -29,17 +30,30 @@ eval_steps = 10
 enc = LlamaTokenizerFast.from_pretrained("hf-internal-testing/llama-tokenizer")
 assert len(enc) <= vocab_size
 
-dataloader_train = SingleShardDataLoader(
-    data_root=data_root,
-    mode="train",  # train|val|test
+# dataloader_train = SingleShardDataLoader(
+#     data_root=data_root,
+#     mode="train",  # train|val|test
+#     batch_size=batch_size,
+#     sequence_length=max_seq_length,
+# )
+# dataloader_val = SingleShardDataLoader(
+#     data_root=data_root,
+#     mode="test",
+#     batch_size=batch_size,
+#     sequence_length=max_seq_length,
+# )
+
+dataloader_train = SimpleDataLoader(
+    data_root="/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer",
+    mode="train",  # train|validation|test
     batch_size=batch_size,
-    sequence_length=max_seq_length,
+    sequence_length=max_seq_length
 )
-dataloader_val = SingleShardDataLoader(
-    data_root=data_root,
-    mode="test",
+dataloader_val = SimpleDataLoader(
+    data_root="/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer",
+    mode="validation",  # train|validation|test
     batch_size=batch_size,
-    sequence_length=max_seq_length,
+    sequence_length=max_seq_length
 )
 
 # ============= Model ==============
