@@ -28,7 +28,8 @@ Memory allocation:
     For a float32 tensor of shape (800,), instead of 800 * 4 = 3200 bytes, 3584 (512 * 7) bytes are allocated.
 - When the tensor is deleted, or when the variable goes out of scope,
     the memory is immediately deallocated, but still reserved for future use.
--
+
+More here: https://medium.com/@akhilez/simple-gpu-memory-allocation-experiments-every-ml-engineer-should-do-ad5f3e132c5e
 """
 import subprocess
 
@@ -199,10 +200,6 @@ def test_single_linear_layer_forward_allocation():
 
 
 def test_single_linear_layer_backward_allocation():
-    # Disable cublas
-    # import os; os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":0:0"
-    cublas_size = 8519680
-
     print(f"Base memory: {torch.cuda.memory_allocated(device_id)}")
 
     model = nn.Linear(256, 250, device=device, dtype=torch.float32)
@@ -215,25 +212,27 @@ def test_single_linear_layer_backward_allocation():
     print(f"Memory after backward pass: {final_memory}")
 
     # Memory calculations
-    w_mem = (len(model.weight.flatten()) * model.weight.dtype.itemsize + 511) // 512 * 512
-    b_mem = (len(model.bias) * model.bias.dtype.itemsize + 511) // 512 * 512
-    model_mem = w_mem + b_mem
-    print(f"Excepted model memory: {model_mem}")
+    next_chunk = lambda n: (n + 511) // 512 * 512
+    units = model.weight.dtype.itemsize  # 4 bytes for float32
+    mem = next_chunk(len(model.weight.flatten()) * units)
+    mem += next_chunk(len(model.bias) * units)
+    print(f"Excepted model memory: {mem}")
 
-    x_mem = (len(x.flatten()) * x.dtype.itemsize + 511) // 512 * 512
-    y_mem = (len(y.flatten()) * y.dtype.itemsize + 511) // 512 * 512
+    x_mem = next_chunk(len(x.flatten()) * units)
+    y_mem = next_chunk(len(y.flatten()) * units)
     print(f"{x_mem=}, {y_mem=}")
+    mem += x_mem + y_mem
 
     # Gradient memory
-    w_grad_mem = (len(model.weight.grad.flatten()) * model.weight.grad.dtype.itemsize + 511) // 512 * 512
-    b_grad_mem = (len(model.bias.grad.flatten()) * model.bias.grad.dtype.itemsize + 511) // 512 * 512
+    w_grad_mem = next_chunk(len(model.weight.grad.flatten()) * units)
+    b_grad_mem = next_chunk(len(model.bias.grad.flatten()) * units)
     print(f"{model.weight.grad.shape=}, {w_grad_mem=}")
     print(f"{model.bias.grad.shape=}, {b_grad_mem=}")
+    mem += w_grad_mem + b_grad_mem
 
-    total_memory_expected = (2 * model_mem) + x_mem + y_mem + (2 * cublas_size)
-    print(f"Total memory expected: {total_memory_expected}")
-
-    assert final_memory == total_memory_expected
+    mem += 2 * 8519680  # cublas_size doubled
+    print(f"Total memory expected: {mem}")
+    assert final_memory == mem
 
     del model, x, y
     torch.cuda.empty_cache()
@@ -316,28 +315,22 @@ def test_execution_speed_without_cublas():
     print(f"memory: {torch.cuda.memory_allocated(device_id)})")
 
 
-def next_chunk(n):
-    return (n + 511) // 512 * 512
-
-
 def test_multi_layer_forward():
-    # Disable cublas
-    import os; os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":0:0"
-
     print(f"Base memory: {torch.cuda.memory_allocated(device_id)}")
 
     inference_mode = False
-    n_layers = 5
+    n_layers = 1
     model = nn.Sequential(*[
         nn.Sequential(
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            # nn.LayerNorm(256),
-            nn.RMSNorm(256),
+            nn.Linear(200, 100),
+            nn.ReLU(),  # No trainable params
+            nn.Linear(100, 200),
+            nn.Sigmoid(),  # No trainable params
         )
         for _ in range(n_layers)
     ]).to(device_id)
-    x = torch.randn((1, 256), device=device_id)
+    batch_size = 5
+    x = torch.randn((batch_size, 200), device=device_id)
     with torch.inference_mode(inference_mode):
         y = model(x)
 
@@ -345,6 +338,7 @@ def test_multi_layer_forward():
     print(f"Memory after forward pass: {final_memory}")
 
     # Computed memory
+    next_chunk = lambda n: (n + 511) // 512 * 512
     mem = 0
     unit = model[0][0].weight.dtype.itemsize
     for block in model:
@@ -353,29 +347,250 @@ def test_multi_layer_forward():
                 mem += next_chunk(len(layer.weight.flatten()) * unit)
                 mem += next_chunk(len(layer.bias) * unit)
                 if not inference_mode:
-                    # One matmul with weight
-                    mem += next_chunk(layer.out_features * unit)
-            elif isinstance(layer, nn.LayerNorm):
-                mem += next_chunk(len(layer.weight.flatten()) * unit)
-                mem += next_chunk(len(layer.bias) * unit)
-                if not inference_mode:
-                    # One weight multiplication and one sqrt?
-                    mem += 2 * next_chunk(layer.normalized_shape[0] * unit)
-            elif isinstance(layer, nn.RMSNorm):
-                mem += next_chunk(len(layer.weight.flatten()) * unit)
-                if not inference_mode:
-                    # One weight, one sqrt, what is 0.5 for?
-                    mem += int(next_chunk(layer.normalized_shape[0] * unit) * 2.5)
-    mem += next_chunk(len(x.flatten()) * unit)
+                    # Gotta store the input
+                    mem += next_chunk(layer.in_features * batch_size * unit)
+    mem += next_chunk(len(y.flatten()) * unit)
+    mem += 8519680  # cublas_size
     if inference_mode:
         mem += next_chunk(len(y.flatten()) * unit)
     print(f"Total memory expected: {mem}")
+    assert final_memory == mem
 
-    # assert final_memory == mem
 
-    del model, x, y
-    torch.cuda.empty_cache()
-    print(f"Memory after cleanup: {torch.cuda.memory_allocated(device_id)}")
+def test_multi_layer_backward():
+    print(f"Base memory: {torch.cuda.memory_allocated(device_id)}")
+
+    n_layers = 1
+    model = nn.Sequential(*[
+        nn.Sequential(
+            nn.Linear(200, 100),
+            nn.ReLU(),  # No trainable params
+            nn.Linear(100, 200),
+            nn.Sigmoid(),  # No trainable params
+        )
+        for _ in range(n_layers)
+    ]).to(device_id)
+    batch_size = 5
+    x = torch.randn((batch_size, 200), device=device_id)
+    y = model(x)
+    print(f"Memory after forward pass: {torch.cuda.memory_allocated(device_id)}")
+    y.sum().backward()
+    final_memory = torch.cuda.memory_allocated(device_id)
+    print(f"Memory after backward pass: {final_memory}")
+
+    # Computed memory
+    next_chunk = lambda n: (n + 511) // 512 * 512
+    mem = 0
+    unit = model[0][0].weight.dtype.itemsize
+    for block in model:
+        for layer in block:
+            if isinstance(layer, nn.Linear):
+                mem += next_chunk(len(layer.weight.flatten()) * unit) * 2   # Weights and gradients
+                mem += next_chunk(len(layer.bias) * unit) * 2               # Biases and gradients
+                # mem += next_chunk(layer.in_features * batch_size * unit)  # Intermediate tensors are cleared
+    mem += next_chunk(len(y.flatten()) * unit)
+    mem += 2 * 8519680                                                      # cublas_size doubled
+    mem += next_chunk(len(y.flatten()) * unit)
+    print(f"Total memory expected: {mem}")
+    assert final_memory == mem
+
+
+def test_multi_op_forward():
+    print(f"Base memory: {torch.cuda.memory_allocated(device_id)}")
+
+    x = torch.randn((1, 256), device=device_id, dtype=torch.float32, requires_grad=False)
+    # w1 = torch.randn((256, 26), device=device_id, dtype=torch.float32, requires_grad=True)
+    # w2 = torch.randn((256, 256), device=device_id, dtype=torch.float32, requires_grad=True)
+    layer_norm = nn.LayerNorm(256).to(device_id)
+    y = layer_norm(x + 2)
+
+    total_mem = torch.cuda.memory_allocated(device_id)
+    print(f"Memory after forward pass: {total_mem}")
+
+    # Memory calculations
+    next_chunk = lambda n: (n + 511) // 512 * 512
+    x_mem = next_chunk(len(x.flatten()) * x.dtype.itemsize)
+    y_mem = next_chunk(len(y.flatten()) * y.dtype.itemsize)
+    # w1_mem = 0  # next_chunk(len(w1.flatten()) * w1.dtype.itemsize)
+    # w2_mem = next_chunk(len(w2.flatten()) * w2.dtype.itemsize)
+    layer_norm_mem = next_chunk(len(layer_norm.weight.flatten()) * layer_norm.weight.dtype.itemsize)
+    layer_norm_mem += next_chunk(len(layer_norm.bias.flatten()) * layer_norm.bias.dtype.itemsize)
+    cublas_size = 0#8519680
+    intermediate_mem = next_chunk(len(x.flatten()) * x.dtype.itemsize)
+    total_mem_expected = x_mem + y_mem + cublas_size + intermediate_mem + layer_norm_mem
+    print(f"Total memory expected: {total_mem_expected}")
+    assert total_mem == total_mem_expected
+
+
+def test_layer_norm():
+    print(f"Base memory: {torch.cuda.memory_allocated(device_id)}")
+    x = torch.rand((10,), device=device_id)
+    w = torch.rand((10,), requires_grad=True, device=device_id)
+    # Layer Norm
+    y = (x - x.mean()) / (x.std() + 1e-6) * w
+    final_memory = torch.cuda.memory_allocated(device_id)
+    print(f"Memory after forward pass: {final_memory}")
+
+    # Memory calculations
+    next_chunk = lambda n: (n + 511) // 512 * 512
+    mem = next_chunk(len(x.flatten()) * x.dtype.itemsize)
+    mem += next_chunk(len(w.flatten()) * w.dtype.itemsize)
+    mem += next_chunk(len(y.flatten()) * y.dtype.itemsize)
+    mem += next_chunk(len(x.flatten()) * x.dtype.itemsize)  # intermediate
+    print(f"Total memory expected: {mem}")
+    assert final_memory == mem
+
+
+def test_single_linear_layer_with_optimizer():
+    # Disable cublas
+    import os; os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":0:0"
+
+    memory_timeline_real = []
+    add = lambda e: memory_timeline_real.append({"event": e, "memory": torch.cuda.memory_allocated(device_id)})
+    add("baseline")
+
+    in_size = 256
+    out_size = 250
+    batch_size = 100
+    model = nn.Linear(in_size, out_size, device=device, dtype=torch.float32)
+    add("model_allocation")
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    add("optimizer_init")
+
+    x = torch.randn((batch_size, in_size,), dtype=torch.float32, device=device)
+    add("input_allocation")
+
+    def step(n):
+        optimizer.zero_grad()
+        add(f"optim_zero_grad_{n}")
+
+        y = model(x)
+        add(f"forward_{n}")
+
+        y.sum().backward()
+        add(f"backward_{n}")
+
+        optimizer.step()
+        del y
+        add(f"optim_step_{n}")
+
+    for i in range(4):
+        step(i + 1)
+
+    # Bar chart with even name on x-axis and total_memory on y-axis
+    fig = plt.figure(figsize=(15, 7))
+    fig.set_tight_layout(True)
+    plt.ylim((0, 1_300_000))
+    plt.bar([event["event"] for event in memory_timeline_real], [event["memory"] for event in memory_timeline_real])
+    plt.xlabel("Event")
+    plt.ylabel("Total memory allocated (bytes)")
+    plt.title(f"Memory allocation during training ({type(optimizer)})")
+    plt.xticks(rotation=45)
+    plt.show()
+
+    """
+    Base memory: 0
+    Memory after model allocation: 257024
+    Memory after optimizer allocation: 257024
+     ------- Step -------
+    Memory after optimizer zero_grad: 258048
+    Memory after forward pass: 259072
+    Memory after backward pass: 516096
+    Memory after optimizer step: 1030144
+     ------- Step -------
+    Memory after optimizer zero_grad: 772096
+    Memory after forward pass: 773120
+    Memory after backward pass: 1030144
+    Memory after optimizer step: 1030144
+     ------- Step -------
+    Memory after optimizer zero_grad: 772096
+    Memory after forward pass: 773120
+    Memory after backward pass: 1030144
+    Memory after optimizer step: 1030144
+    
+    Final memory: 1029120
+    """
+
+    # Memory calculations
+    units = model.weight.dtype.itemsize
+    memory_timeline = []
+    all_keys = ["trainable_params", "input", "output", "gradient", "intermediate_tensors", "optimizer_state"]
+    def update_memory(event: str, update: dict):
+        prev_state = memory_timeline[-1] if memory_timeline else {k: 0 for k in all_keys}
+        new_state = {k: prev_state.get(k, 0) + update.get(k, 0) for k in all_keys}
+        new_state["event"] = event
+        memory_timeline.append(new_state)
+    next_chunk = lambda n: (n + 511) // 512 * 512
+
+    update_memory("baseline", {})
+
+    # Model memory
+    model_mem = next_chunk(len(model.weight.flatten()) * units)
+    model_mem += next_chunk(len(model.bias) * units)
+    update_memory("model_allocation", {"trainable_params": model_mem})
+    update_memory("optimizer_init", {})
+
+    # Input memory
+    x_mem = next_chunk(len(x.flatten()) * units)
+    update_memory("input_allocation", {"input": x_mem})
+    update_memory("optim_zero_grad_1", {})
+
+    # Forward
+    y_mem = next_chunk(batch_size * out_size * units)
+    # Add any intermediate tensors here.
+    update_memory("forward_1", {"output": y_mem})  # , "intermediate_tensors": ...})
+
+    # Backward
+    grad_mem = next_chunk(len(model.weight.grad.flatten()) * units)
+    grad_mem += next_chunk(len(model.bias.grad.flatten()) * units)
+    # Clear any intermediate tensors here.
+    update_memory("backward_1", {"gradient": grad_mem})  # "intermediate_tensors": ...})
+
+    # Optimizer memory
+    if isinstance(optimizer, torch.optim.SGD):
+        # SGD has parameters in memory. They are cleared after each step.
+        optimizer_mem = 0
+    elif isinstance(optimizer, torch.optim.Adam):
+        # Adam has parameters and 2 momentum buffers. Parameters are cleared after each step.
+        optimizer_mem = 2 * model_mem
+    else:
+        raise
+    update_memory("optim_step_1", {"optimizer_state": optimizer_mem, "output": -y_mem})
+
+    for step in range(2, 5):
+        update_memory(f"optim_zero_grad_{step}", {"gradient": -grad_mem})
+        update_memory(f"forward_{step}", {"output": y_mem})
+        update_memory(f"backward_{step}", {"gradient": grad_mem})
+        update_memory(f"optim_step_{step}", {"output": -y_mem})
+
+    # Make totals
+    for event in memory_timeline:
+        event["total"] = sum([v for v in event.values() if isinstance(v, int)])
+
+    # Plot memory timeline
+    fig = plt.figure(figsize=(15, 7))
+    fig.set_tight_layout(True)
+    plt.ylim((0, 1_300_000))
+    plt.bar([event["event"] for event in memory_timeline], [event["total"] for event in memory_timeline])
+    plt.xlabel("Event")
+    plt.ylabel("Total memory allocated (bytes)")
+    plt.title(f"Memory allocation expected ({type(optimizer)})")
+    plt.xticks(rotation=45)
+    plt.show()
+
+    import pandas as pd
+    df = pd.DataFrame(memory_timeline, columns=all_keys + ["event"])
+    df.set_index("event", inplace=True, drop=True)
+    df.plot(kind='bar', stacked=True, figsize=(15, 7), ylim=(0, 1_300_000), xlabel="Event", ylabel="Total memory allocated (bytes)", title=f"Memory allocation expected ({type(optimizer)})")
+    plt.tight_layout()
+    plt.xticks(rotation=45)
+    plt.show()
+
+    # Compare the two timelines
+    for i, (real, expected) in enumerate(zip(memory_timeline_real, memory_timeline)):
+        assert real["memory"] == expected["total"], f"Memory mismatch at {real['event']}: {real['memory']} != {expected['total']}"
+
 
 
 if __name__ == "__main__":
@@ -388,4 +603,7 @@ if __name__ == "__main__":
     # test_single_linear_layer_backward_allocation()
     # test_execution_speed_without_cublas()
     # test_cublas_on_multiple_matmul()
-    test_multi_layer_forward()
+    # test_multi_layer_forward()
+    test_single_linear_layer_with_optimizer()
+    # test_layer_norm()
+    # test_multi_layer_backward()
