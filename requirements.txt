@@ -17,6 +17,7 @@ spacy==3.1.1
 gym==0.18.0
 fastapi==0.63.0
 uvicorn==0.13.3
+linetimer==0.1.5
 
 -e git+https://github.com/Akhilez/gyms.git/#egg=gym_nine_mens_morris&subdirectory=gym-nine-mens-morris
 -e git+https://github.com/Akhilez/gyms.git/#egg=gym_tic_tac_toe&subdirectory=gym-tic-tac-toe
