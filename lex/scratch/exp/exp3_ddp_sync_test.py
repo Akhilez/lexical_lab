@@ -86,6 +86,6 @@ def test_with_ddp():
 
 if __name__ == '__main__':
     # Use torchrun to launch
-    # CUDA_VISIBLE_DEVICES=0,5,6 torchrun --standalone --nproc_per_node=3 ddp_trainer.py
+    # CUDA_VISIBLE_DEVICES=0,5,6 torchrun --standalone --nproc_per_node=3 exp3_ddp_sync_test.py
     test_without_ddp()
     test_with_ddp()
