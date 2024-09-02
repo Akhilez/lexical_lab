@@ -9,6 +9,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 nohup torchrun --standalone --nproc_per_node=
 """
 
 import os
+from datetime import datetime
 from os.path import join
 from time import time
 
@@ -25,7 +26,7 @@ from lex.scratch.models.vanilla_lm import AutoRegressiveLM
 
 
 # ============ Config =============
-batch_size = 256
+batch_size = 128
 max_seq_length = 512
 data_root = "/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer"
 output_dir = "/home/akhil/code/lexical_lab/lex/scratch/trainer/logs"
@@ -36,9 +37,9 @@ n_layers = 10
 n_heads = 8
 lr = 1e-4
 max_training_steps = 50000
-generate_every = 500
+generate_every = 5000
 evaluate_every = 500
-eval_steps = 10
+eval_steps = 50
 checkpoint_every = 1000
 
 # DDP
@@ -51,7 +52,7 @@ if use_ddp:
     print(f"{os.environ.get('CUDA_VISIBLE_DEVICES')=}")
 else:
     rank = 0
-    world_size=1
+    world_size = 1
 
 # =========== Data =============
 enc = LlamaTokenizerFast.from_pretrained("hf-internal-testing/llama-tokenizer")
@@ -75,15 +76,19 @@ dataloader_val = ParallelDataLoader(
 )
 
 # ============= Model ==============
-torch.set_float32_matmul_precision('medium')  # 97ms to 66ms
+torch.set_float32_matmul_precision("medium")  # 97ms to 66ms
 device = get_device(rank=rank)
-raw_model = AutoRegressiveLM(vocab_size, embedding_size, max_seq_length, n_layers, n_heads)
+raw_model = AutoRegressiveLM(
+    vocab_size, embedding_size, max_seq_length, n_layers, n_heads
+)
 raw_model = torch.compile(raw_model)
 raw_model.to(device)
 model = raw_model
 if use_ddp:
     model = DDP(raw_model, device_ids=[rank], output_device=rank)
-optimizer = AdamW(model.parameters(), lr=lr, fused=True)  # fused=True makes it 2ms faster
+optimizer = AdamW(
+    model.parameters(), lr=lr, fused=True
+)  # fused=True makes it 2ms faster
 criterion = torch.nn.CrossEntropyLoss()
 
 # if rank == 0:
@@ -114,26 +119,32 @@ for step in range(max_training_steps):
     optimizer.step()
     step_time_agg += (time() - start_time) * 1000  # ms
     loss_agg += loss.item()
+    del x, y, yh, loss
 
     # ---------- Eval ----------
-    if step > 0 and step % evaluate_every == 0 or step == max_training_steps - 1:
+    if step > 0 and (step % evaluate_every == 0 or step == max_training_steps - 1):
         dataloader_val.reset()
         model.eval()
         eval_loss_agg = torch.tensor(0, device=device, dtype=torch.bfloat16)
         with torch.inference_mode():
             for eval_step in range(eval_steps):
                 x, y = dataloader_val.next_batch()
-                yh = model(x.to(device)).to("cpu")
+                x, y = x.to(device), y.to(device)
+                yh = model(x)
                 loss = criterion(yh.view(-1, vocab_size), y.view(-1))
                 eval_loss_agg += loss.item()
+        del x, y, yh, loss
         model.train()
         if use_ddp:
             dist.reduce(eval_loss_agg, dst=0, op=dist.ReduceOp.AVG)
             dist.reduce(loss_agg, dst=0, op=dist.ReduceOp.AVG)
         if rank == 0:
-            print(f"step: {step:03d}, rank: {rank}, train loss: {loss_agg / evaluate_every:.6f} "
-                  f"val loss: {eval_loss_agg / eval_steps:.6f} step time: {step_time_agg / evaluate_every:.2f}ms, "
-                  f"data load time: {data_load_time_agg / evaluate_every:.2f}ms")
+            print(
+                f"step: {step:03d}, rank: {rank}, now: {datetime.now()}"
+                f"train loss: {loss_agg / evaluate_every:.4f} val loss: {eval_loss_agg / eval_steps:.4f} "
+                f"step time: {step_time_agg / evaluate_every:.2f}ms, "
+                f"data load time: {data_load_time_agg / evaluate_every:.2f}ms"
+            )
         loss_agg = torch.tensor(0, device=device, dtype=torch.bfloat16)
         step_time_agg = 0
         data_load_time_agg = 0
@@ -144,11 +155,14 @@ for step in range(max_training_steps):
         tokens = [enc.encode(prefix)] * 5  # (5, s)
         tokens = torch.tensor(tokens, dtype=torch.long)
         model.eval()
-        generated = raw_model.generate(tokens.to(device), length=20, top_k=50, temperature=1.0)
+        generated = raw_model.generate(
+            tokens.to(device), length=20, top_k=50, temperature=1.0
+        )
         generated = generated.tolist()
         for tokens in generated:
             print(f">>> {enc.decode(tokens)}")
         model.train()
+        del tokens, generated
 
     # ------------ Checkpoint -------------
     if rank == 0 and step % checkpoint_every == 0 or step == max_training_steps - 1:
@@ -170,8 +184,14 @@ step: 700, rank: 0, train loss: 13.750000 val loss: 13.000000 step time: 34.34ms
 step: 800, rank: 0, train loss: 11.500000 val loss: 11.625000 step time: 34.14ms, data load time: 0.06ms
 
 ---
-Batch size 128->256, seq 256->320 7 GPUs
-step: 1000, rank: 0, train loss: 8.125000 val loss: 9.250000 step time: 65.82ms, data load time: 0.06ms
-
-
+Batch size 128, seq 512, 7 GPUs
+step: 500, rank: 0, train loss: 16.250000 val loss: 15.812500 step time: 81.56ms, data load time: 0.06ms
+step: 1000, rank: 0, train loss: 8.125000 val loss: 9.500000 step time: 54.00ms, data load time: 0.06ms
+step: 1500, rank: 0, train loss: 6.812500 val loss: 7.843750 step time: 53.44ms, data load time: 0.06ms
+step: 2000, rank: 0, train loss: 4.093750 val loss: 7.312500 step time: 96.01ms, data load time: 0.59ms
+step: 2500, rank: 0, train loss: 4.062500 val loss: 7.093750 step time: 54.12ms, data load time: 0.07ms
+step: 3000, rank: 0, train loss: 4.062500 val loss: 6.875000 step time: 54.09ms, data load time: 0.07ms
+step: 3500, rank: 0, train loss: 4.093750 val loss: 6.687500 step time: 54.12ms, data load time: 0.72ms
+step: 4000, rank: 0, train loss: 4.062500 val loss: 6.562500 step time: 53.92ms, data load time: 0.06ms
+step: 5500, rank: 0, train loss: 4.093750 val loss: 6.250000 step time: 53.92ms, data load time: 0.06ms
 """
