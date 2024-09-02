@@ -34,7 +34,7 @@ class SimpleDataLoader:
         end = min(self._current_token_index + self.batch_size * self.sequence_length, self._max_tokens_this_shard)
         self.num_tokens_so_far += end - self._current_token_index
         tokens = self.shard[self._current_token_index: end + 1]  # (bs * sl + 1,)
-        tokens = torch.from_numpy(tokens).to(torch.int64)  # (bs * sl + 1,)
+        tokens = torch.from_numpy(tokens.astype(np.int64))  # (bs * sl + 1,)
         xs = tokens[:-1].reshape(-1, self.sequence_length)  # (bs, sl)
         ys = tokens[1:].reshape(-1, self.sequence_length)  # (bs, sl)
         self._current_token_index = end

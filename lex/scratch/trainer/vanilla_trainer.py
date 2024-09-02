@@ -5,7 +5,7 @@ from torch.optim import AdamW
 from torchsummary import summary
 from transformers import LlamaTokenizerFast
 
-from common import get_device
+from lex.config import get_device
 from lex.scratch.dataloaders.d2_single_shard_dataloader import SingleShardDataLoader
 from lex.scratch.dataloaders.d3_simple_dataloader import SimpleDataLoader
 from lex.scratch.models.vanilla_lm import AutoRegressiveLM
@@ -117,3 +117,17 @@ for step in range(max_training_steps):
         for tokens in generated:
             print(f">>> {enc.decode(tokens)}")
         model.train()
+
+
+"""
+step: 100 train loss: 38.988750 val loss: 29.887267 step time: 162.50ms
+step: 200 train loss: 27.733750 val loss: 25.507024 step time: 31.63ms
+step: 300 train loss: 24.002500 val loss: 22.240289 step time: 31.99ms
+step: 400 train loss: 20.923750 val loss: 19.414048 step time: 32.20ms
+step: 500 train loss: 18.261250 val loss: 17.143362 step time: 31.42ms
+
+step: 1000 train loss: 11.443125 val loss: 11.035467 step time: 31.58ms
+step: 1500 train loss: 8.935625 val loss: 8.809173 step time: 31.43ms
+step: 2000 train loss: 7.948437 val loss: 7.944898 step time: 31.96ms
+step: 2500 train loss: 7.489375 val loss: 7.511491 step time: 30.68ms
+"""

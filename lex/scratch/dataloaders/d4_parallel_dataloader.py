@@ -6,7 +6,7 @@ from os.path import join
 import numpy as np
 import torch
 
-from common import ROOT
+from lex.config import ROOT
 
 
 class LockedFile:
@@ -70,7 +70,7 @@ class SharedStateManager:
             shared_state["shared_read"][self.rank].append(idx)
 
             f.seek(0)
-            f.write(json.dumps(shared_state, indent=2))
+            json.dump(shared_state, f, indent=2)
             f.truncate()
         return idx
 
