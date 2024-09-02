@@ -11,7 +11,6 @@ data/
 .ipynb_checkpoints/
 env.py
 *.gz
-models/
 node_modules/
 bundles/
 webpack-stats.json
