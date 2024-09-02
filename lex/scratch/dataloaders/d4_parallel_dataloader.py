@@ -1,6 +1,6 @@
 import fcntl
 import json
-from os import environ, fsync, getpid
+from os import fsync, getpid
 from os.path import join
 
 import numpy as np
@@ -37,11 +37,11 @@ class LockedFile:
 
 
 class SharedStateManager:
-    def __init__(self, all_shard_indices: torch.Tensor, mode: str):
+    def __init__(self, all_shard_indices: torch.Tensor, mode: str, rank: int, world_size: int):
         self.all_shard_indices = all_shard_indices
         self.shared_state_path = join(ROOT, f"shared_state_{mode}.json")
-        self.world_size = int(environ["WORLD_SIZE"])
-        self.rank = str(environ["RANK"])
+        self.world_size = world_size
+        self.rank = str(rank)
 
     def reset(self) -> int:
         """
@@ -105,7 +105,7 @@ class SharedStateManager:
 
 
 class ParallelDataLoader:
-    def __init__(self, data_root, mode, batch_size, sequence_length):
+    def __init__(self, data_root, mode, batch_size, sequence_length, rank, world_size):
         """
         - shared_state.json:
             - Stores the global state of the data loader across all GPUs
@@ -137,7 +137,7 @@ class ParallelDataLoader:
         self.mode = mode  # train|validation|test
         self.batch_size = batch_size
         self.sequence_length = sequence_length
-        self.rank = int(environ["RANK"])  # global rank
+        self.rank = rank
 
         with open(join(data_root, 'metadata.json'), 'r') as f:
             metadata = json.load(f)
@@ -147,7 +147,7 @@ class ParallelDataLoader:
         self._max_tokens_this_shard = 0
         self._current_token_index = 0
         self.shard = None
-        self.shared_state = SharedStateManager(torch.tensor(shard_indices, dtype=torch.int32), mode)
+        self.shared_state = SharedStateManager(torch.tensor(shard_indices, dtype=torch.int32), mode, rank, world_size)
 
         self.reset()
 
@@ -199,6 +199,7 @@ class ParallelDataLoader:
 
 
 if __name__ == '__main__':
+    import os
     # Single process:
     # python d4_parallel_dataloader.py
     # os.environ["RANK"] = "0"
@@ -210,6 +211,8 @@ if __name__ == '__main__':
         mode="train",  # train|validation|test
         batch_size=4,
         sequence_length=128,
+        rank = os.environ["RANK"],
+        world_size = os.environ["WORLD_SIZE"],
     )
     for i in range(100):
         xs, ys = dataloader.next_batch()

@@ -58,7 +58,7 @@ dataloader_val = SimpleDataLoader(
 
 # ============= Model ==============
 torch.set_float32_matmul_precision('medium')  # 97ms to 66ms
-device = get_device(rank=2)
+device = get_device(rank=0)
 model = AutoRegressiveLM(vocab_size, embedding_size, max_seq_length, n_layers, n_heads)
 model = torch.compile(model)  # 43ms to 29ms
 model.to(device)
@@ -75,10 +75,13 @@ summary(
 # ============= Training ==============
 loss_agg = 0
 step_time_agg = 0
+data_load_time_agg = 0
 for step in range(max_training_steps):
     # --------- Train ----------
     start_time = time()
     x, y = dataloader_train.next_batch()  # (b, s)
+    data_load_time_agg += (time() - start_time) * 1000  # ms
+    start_time = time()
 
     with torch.autocast(device_type=device, dtype=torch.bfloat16):  # 66ms to 43ms
         yh = model(x.to(device))  # (b, s, v)
@@ -102,9 +105,11 @@ for step in range(max_training_steps):
                 loss = criterion(yh.view(-1, vocab_size), y.view(-1))
                 eval_loss_agg += loss.item()
         model.train()
-        print(f"step: {step:03d} train loss: {loss_agg / evaluate_every:.6f} val loss: {eval_loss_agg / eval_steps:.6f} step time: {step_time_agg / evaluate_every:.2f}ms")
+        print(f"step: {step:03d} train loss: {loss_agg / evaluate_every:.6f} val loss: {eval_loss_agg / eval_steps:.6f}"
+              f" step time: {step_time_agg / evaluate_every:.2f}ms, data load time: {data_load_time_agg / evaluate_every:.2f}ms")
         loss_agg = 0
         step_time_agg = 0
+        data_load_time_agg = 0
 
     # ----------- Generate -----------
     if step % generate_every == 0 or step == max_training_steps - 1:
@@ -120,9 +125,9 @@ for step in range(max_training_steps):
 
 
 """
-step: 100 train loss: 38.988750 val loss: 29.887267 step time: 162.50ms
-step: 200 train loss: 27.733750 val loss: 25.507024 step time: 31.63ms
-step: 300 train loss: 24.002500 val loss: 22.240289 step time: 31.99ms
+step: 100 train loss: 38.988750 val loss: 29.887267 step time: 162.50ms, data load time: 0.07ms
+step: 200 train loss: 27.733750 val loss: 25.507024 step time: 31.63ms, data load time: 0.06ms
+step: 300 train loss: 24.002500 val loss: 22.240289 step time: 31.99ms, data load time: 0.06ms
 step: 400 train loss: 20.923750 val loss: 19.414048 step time: 32.20ms
 step: 500 train loss: 18.261250 val loss: 17.143362 step time: 31.42ms
 
