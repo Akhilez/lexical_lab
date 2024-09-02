@@ -42,6 +42,7 @@ class SharedStateManager:
         self.shared_state_path = join(ROOT, f"shared_state_{mode}.json")
         self.world_size = world_size
         self.rank = str(rank)
+        self.mode = mode
 
     def reset(self) -> int:
         """
@@ -54,20 +55,23 @@ class SharedStateManager:
             except json.JSONDecodeError:
                 state = {}
 
-            # Reset if current_shard_index is already set to some int
-            if not state or type(state.get("current_shard_index", {}).get(self.rank)) is int:
+            if (
+                not state  # File doesn't exist or corrupt
+                or state.get("pids", {}).get(self.rank) != getpid()  # If reusing previous run's file.
+                or type(state.get("current_shard_index", {}).get(self.rank)) is int  # reset is manually called later.
+            ):
                 # Reset the state
                 state["num_epochs_so_far"] = 0
                 state["num_tokens_so_far"] = 0
                 state["current_shard_index"] = {str(rank): None for rank in range(self.world_size)}
                 state["pids"] = {str(rank): None for rank in range(self.world_size)}
                 state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
-                state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
+                state["available_shard_indices"] = self.get_all_shard_indices()
 
             # If len(shards) < world_size, available_shard_indices might be empty.
             if len(state["available_shard_indices"]) == 0:
                 state["num_epochs_so_far"] += 1
-                state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
+                state["available_shard_indices"] = self.get_all_shard_indices()
                 state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
 
             # Now initialize the state for this process
@@ -96,21 +100,27 @@ class SharedStateManager:
         """
         with LockedFile(self.shared_state_path, 'r+') as f:
             f.seek(0)
-            shared_state = json.load(f)
-            if len(shared_state["available_shard_indices"]) == 0:
-                shared_state["num_epochs_so_far"] += 1
-                shared_state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
-                shared_state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
-            shared_state["num_tokens_so_far"] += num_tokens_read
-            idx = shared_state["available_shard_indices"].pop(0)
-            shared_state["current_shard_index"][self.rank] = idx
-            shared_state["shards_read"][self.rank].append(idx)
+            state = json.load(f)
+            if len(state["available_shard_indices"]) == 0:
+                state["num_epochs_so_far"] += 1
+                state["available_shard_indices"] = self.get_all_shard_indices()
+                state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
+            state["num_tokens_so_far"] += num_tokens_read
+            idx = state["available_shard_indices"].pop(0)
+            state["current_shard_index"][self.rank] = idx
+            state["shards_read"][self.rank].append(idx)
             f.seek(0)
-            json.dump(shared_state, f, indent=2)
+            json.dump(state, f, indent=2)
 
             # Truncate the rest of the file if the new content is shorter
             f.truncate()
         return idx
+
+    def get_all_shard_indices(self):
+        if self.mode == "train":
+            return self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
+        else:
+            return self.all_shard_indices.tolist()
 
 
 class ParallelDataLoader:

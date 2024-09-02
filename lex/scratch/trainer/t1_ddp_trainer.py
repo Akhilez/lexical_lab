@@ -1,7 +1,11 @@
 """
 This code trains a model using Distributed Data Parallel.
+
 Use with torchrun:
 CUDA_VISIBLE_DEVICES=3,4,5 torchrun --standalone --nproc_per_node=2 t1_ddp_trainer.py
+
+Run in background:
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 nohup torchrun --standalone --nproc_per_node=7 t1_ddp_trainer.py > logs/output.log &
 """
 
 import os
@@ -22,7 +26,7 @@ from lex.scratch.models.vanilla_lm import AutoRegressiveLM
 
 # ============ Config =============
 batch_size = 256
-max_seq_length = 320
+max_seq_length = 512
 data_root = "/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer"
 output_dir = "/home/akhil/code/lexical_lab/lex/scratch/trainer/logs"
 
