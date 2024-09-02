@@ -21,10 +21,8 @@ from lex.scratch.models.vanilla_lm import AutoRegressiveLM
 
 
 # ============ Config =============
-use_ddp = True
-
-batch_size = 128
-max_seq_length = 256
+batch_size = 256
+max_seq_length = 320
 data_root = "/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer"
 output_dir = "/home/akhil/code/lexical_lab/lex/scratch/trainer/logs"
 
@@ -33,13 +31,14 @@ embedding_size = 256
 n_layers = 10
 n_heads = 8
 lr = 1e-4
-max_training_steps = 10000
+max_training_steps = 50000
 generate_every = 500
-evaluate_every = 100
+evaluate_every = 500
 eval_steps = 10
 checkpoint_every = 1000
 
 # DDP
+use_ddp = True
 if use_ddp:
     dist.init_process_group("nccl")
     rank = dist.get_rank()
@@ -83,13 +82,13 @@ if use_ddp:
 optimizer = AdamW(model.parameters(), lr=lr, fused=True)  # fused=True makes it 2ms faster
 criterion = torch.nn.CrossEntropyLoss()
 
-if rank == 0:
-    summary(
-        model,
-        torch.randint(0, vocab_size, (batch_size, max_seq_length), dtype=torch.long, device=device),
-        device=torch.device(device),
-        depth=10,
-    )
+# if rank == 0:
+#     summary(
+#         model,
+#         torch.randint(0, vocab_size, (batch_size, max_seq_length), dtype=torch.long, device=device),
+#         device=torch.device(device),
+#         depth=10,
+#     )
 
 # ============= Training ==============
 loss_agg = torch.tensor(0, device=device, dtype=torch.bfloat16)
@@ -110,7 +109,7 @@ for step in range(max_training_steps):
     loss.backward()
     optimizer.step()
     step_time_agg += (time() - start_time) * 1000  # ms
-    loss_agg += loss.detach()
+    loss_agg += loss.item()
 
     # ---------- Eval ----------
     if step > 0 and step % evaluate_every == 0 or step == max_training_steps - 1:
@@ -122,7 +121,7 @@ for step in range(max_training_steps):
                 x, y = dataloader_val.next_batch()
                 yh = model(x.to(device)).to("cpu")
                 loss = criterion(yh.view(-1, vocab_size), y.view(-1))
-                eval_loss_agg += loss
+                eval_loss_agg += loss.item()
         model.train()
         if use_ddp:
             dist.reduce(eval_loss_agg, dst=0, op=dist.ReduceOp.AVG)
@@ -155,14 +154,20 @@ if use_ddp:
     dist.destroy_process_group()
 
 
-# TODO: No idea why this takes 3x step time compared to vanilla trainer when use_ddp=False
 """
 # 4 GPUs
-step: 100, rank: 0, train loss: 38.500000 val loss: 28.375000 step time: 232.17ms, data load time: 0.10ms
-step: 200, rank: 0, train loss: 26.875000 val loss: 24.375000 step time: 100.20ms, data load time: 0.06ms
-step: 300, rank: 0, train loss: 22.750000 val loss: 21.125000 step time: 100.67ms, data load time: 0.06ms
-step: 400, rank: 0, train loss: 18.125000 val loss: 18.250000 step time: 100.23ms, data load time: 0.08ms
-step: 500, rank: 0, train loss: 16.625000 val loss: 16.125000 step time: 100.47ms, data load time: 0.08ms
+step: 100, rank: 0, train loss: 39.000000 val loss: 29.625000 step time: 169.98ms, data load time: 0.06ms
+step: 200, rank: 0, train loss: 27.375000 val loss: 25.125000 step time: 35.48ms, data load time: 0.05ms
+step: 300, rank: 0, train loss: 22.875000 val loss: 21.750000 step time: 33.09ms, data load time: 0.05ms
+step: 400, rank: 0, train loss: 19.625000 val loss: 19.000000 step time: 34.29ms, data load time: 0.05ms
+step: 500, rank: 0, train loss: 17.250000 val loss: 16.625000 step time: 33.71ms, data load time: 0.07ms
+step: 600, rank: 0, train loss: 16.000000 val loss: 14.500000 step time: 34.67ms, data load time: 0.05ms
+step: 700, rank: 0, train loss: 13.750000 val loss: 13.000000 step time: 34.34ms, data load time: 0.06ms
+step: 800, rank: 0, train loss: 11.500000 val loss: 11.625000 step time: 34.14ms, data load time: 0.06ms
+
+---
+Batch size 128->256, seq 256->320 7 GPUs
+step: 1000, rank: 0, train loss: 8.125000 val loss: 9.250000 step time: 65.82ms, data load time: 0.06ms
 
 
 """

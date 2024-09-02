@@ -50,28 +50,37 @@ class SharedStateManager:
         with LockedFile(self.shared_state_path, 'w+') as f:
             f.seek(0)
             try:
-                shared_state = json.load(f)
+                state = json.load(f)
             except json.JSONDecodeError:
-                shared_state = {}
+                state = {}
 
-            if not shared_state or type(shared_state.get("current_shard_index", {}).get(self.rank)) is int:
+            # Reset if current_shard_index is already set to some int
+            if not state or type(state.get("current_shard_index", {}).get(self.rank)) is int:
                 # Reset the state
-                shared_state["num_epochs_so_far"] = 0
-                shared_state["num_tokens_so_far"] = 0
-                shared_state["current_shard_index"] = {str(rank): None for rank in range(self.world_size)}
-                shared_state["pids"] = {str(rank): None for rank in range(self.world_size)}
-                shared_state["shared_read"] = {str(rank): [] for rank in range(self.world_size)}
-                shared_state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
+                state["num_epochs_so_far"] = 0
+                state["num_tokens_so_far"] = 0
+                state["current_shard_index"] = {str(rank): None for rank in range(self.world_size)}
+                state["pids"] = {str(rank): None for rank in range(self.world_size)}
+                state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
+                state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
+
+            # If len(shards) < world_size, available_shard_indices might be empty.
+            if len(state["available_shard_indices"]) == 0:
+                state["num_epochs_so_far"] += 1
+                state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
+                state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
 
             # Now initialize the state for this process
-            shared_state["pids"][self.rank] = getpid()
-            idx = shared_state["available_shard_indices"].pop(0)
-            shared_state["current_shard_index"][self.rank] = idx
-            shared_state["shared_read"][self.rank].append(idx)
+            state["pids"][self.rank] = getpid()
+            idx = state["available_shard_indices"].pop(0)
+            state["current_shard_index"][self.rank] = idx
+            state["shards_read"][self.rank].append(idx)
 
             f.seek(0)
-            json.dump(shared_state, f, indent=2)
+            json.dump(state, f, indent=2)
             f.truncate()
+
+            # print(f"Reset on {self.rank}: {json.dumps(state, indent=2)}")
         return idx
 
     def get_next_shard_index(self, num_tokens_read: int) -> int:
@@ -79,10 +88,10 @@ class SharedStateManager:
         - If no available shard indices:
             - Increment epoch
             - Set available shard indices to shuffled shard indices
-            - Reset shared_read
+            - Reset shards_read
         - Pick the first shard index
         - Set the current shard index to this shard index
-        - Add shard index to shared_read
+        - Add shard index to shards_read
         - Dump the shared state
         """
         with LockedFile(self.shared_state_path, 'r+') as f:
@@ -91,11 +100,11 @@ class SharedStateManager:
             if len(shared_state["available_shard_indices"]) == 0:
                 shared_state["num_epochs_so_far"] += 1
                 shared_state["available_shard_indices"] = self.all_shard_indices[torch.randperm(len(self.all_shard_indices))].tolist()
-                shared_state["shared_read"] = {str(rank): [] for rank in range(self.world_size)}
+                shared_state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
             shared_state["num_tokens_so_far"] += num_tokens_read
             idx = shared_state["available_shard_indices"].pop(0)
             shared_state["current_shard_index"][self.rank] = idx
-            shared_state["shared_read"][self.rank].append(idx)
+            shared_state["shards_read"][self.rank].append(idx)
             f.seek(0)
             json.dump(shared_state, f, indent=2)
 
