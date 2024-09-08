@@ -24,7 +24,6 @@ class AttentionBlock(nn.Module):
 
         self.qkv = nn.Linear(embedding_size, 3 * embedding_size)
         self.project = nn.Linear(embedding_size, embedding_size)
-        self.project.INIT_LARGE_STD = 1
 
         self.norm1 = RMSNorm(embedding_size)
 
@@ -33,7 +32,6 @@ class AttentionBlock(nn.Module):
             nn.GELU(),
             nn.Linear(embedding_size * 4, embedding_size),
         )
-        self.feedforward[2].INIT_LARGE_STD = 1
 
         self.norm2 = RMSNorm(embedding_size)
 
@@ -103,16 +101,18 @@ class AutoRegressiveLM(nn.Module):
         return tokens
 
     def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            std = 0.02
-            if hasattr(module, 'INIT_LARGE_STD'):
-                std *= (2 * self.n_layers) ** -0.5
+        """
+        Ignore initialization for LayerNorm-like layers.
+        Only initialize mean 0 std 0.02 for Linear and Embedding layers.
+        # For Linear layers that project (output of blocks), set a higher std inversely prop to n_layers
+        """
+        std = 0.02
+        if isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+        elif isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=std)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-
 
 if __name__ == '__main__':
     vocab_size = 64

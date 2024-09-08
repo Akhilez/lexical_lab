@@ -6,7 +6,6 @@ from torchsummary import summary
 from transformers import LlamaTokenizerFast
 
 from lex.config import get_device
-from lex.scratch.dataloaders.d2_single_shard_dataloader import SingleShardDataLoader
 from lex.scratch.dataloaders.d3_simple_dataloader import SimpleDataLoader
 from lex.scratch.models.vanilla_lm import AutoRegressiveLM
 
@@ -30,19 +29,6 @@ eval_steps = 10
 enc = LlamaTokenizerFast.from_pretrained("hf-internal-testing/llama-tokenizer")
 assert len(enc) <= vocab_size
 
-# dataloader_train = SingleShardDataLoader(
-#     data_root=data_root,
-#     mode="train",  # train|val|test
-#     batch_size=batch_size,
-#     sequence_length=max_seq_length,
-# )
-# dataloader_val = SingleShardDataLoader(
-#     data_root=data_root,
-#     mode="test",
-#     batch_size=batch_size,
-#     sequence_length=max_seq_length,
-# )
-
 dataloader_train = SimpleDataLoader(
     data_root="/mnt/ssd/data/fineweb-edu-10BT/llama-tokenizer",
     mode="train",  # train|validation|test
@@ -58,7 +44,7 @@ dataloader_val = SimpleDataLoader(
 
 # ============= Model ==============
 torch.set_float32_matmul_precision('medium')  # 97ms to 66ms
-device = get_device(rank=0)
+device = get_device(rank=2)
 model = AutoRegressiveLM(vocab_size, embedding_size, max_seq_length, n_layers, n_heads)
 model = torch.compile(model)  # 43ms to 29ms
 model.to(device)
@@ -136,4 +122,28 @@ step: 1000 train loss: 11.443125 val loss: 11.035467 step time: 31.58ms
 step: 1500 train loss: 8.935625 val loss: 8.809173 step time: 31.43ms
 step: 2000 train loss: 7.948437 val loss: 7.944898 step time: 31.96ms
 step: 2500 train loss: 7.489375 val loss: 7.511491 step time: 30.68ms
+
+---
+With weight initialization:
+step: 100 train loss: 8.945000 val loss: 7.858323 step time: 186.70ms, data load time: 0.05ms
+step: 200 train loss: 7.545000 val loss: 7.430056 step time: 28.03ms, data load time: 0.04ms
+step: 300 train loss: 7.265625 val loss: 7.123016 step time: 27.61ms, data load time: 0.05ms
+step: 400 train loss: 6.964688 val loss: 6.814813 step time: 28.15ms, data load time: 0.04ms
+step: 500 train loss: 6.701875 val loss: 6.610016 step time: 28.15ms, data load time: 0.04ms
+
+step: 1000 train loss: 6.141250 val loss: 6.103240 step time: 28.14ms, data load time: 0.04ms
+step: 1500 train loss: 5.850313 val loss: 5.815863 step time: 29.65ms, data load time: 0.04ms
+step: 2000 train loss: 5.589688 val loss: 5.563005 step time: 28.33ms, data load time: 0.04ms
+
+---
+Ignore INIT_LARGE_STD
+step: 100 train loss: 8.945312 val loss: 7.848524 step time: 183.52ms, data load time: 0.05ms
+step: 200 train loss: 7.485625 val loss: 7.284136 step time: 28.67ms, data load time: 0.05ms
+step: 300 train loss: 7.134375 val loss: 6.978426 step time: 27.87ms, data load time: 0.05ms
+step: 400 train loss: 6.820625 val loss: 6.722461 step time: 29.13ms, data load time: 0.05ms
+step: 500 train loss: 6.609063 val loss: 6.537150 step time: 28.36ms, data load time: 0.05ms
+
+step: 1000 train loss: 6.074063 val loss: 6.050111 step time: 27.90ms, data load time: 0.04ms
+step: 1500 train loss: 5.797813 val loss: 5.746186 step time: 28.56ms, data load time: 0.05ms
+step: 2000 train loss: 5.555937 val loss: 5.503580 step time: 27.96ms, data load time: 0.05ms
 """
