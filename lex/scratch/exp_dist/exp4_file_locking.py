@@ -2,7 +2,7 @@ import os
 import fcntl
 
 
-file_path = "/home/akhil/code/lexical_lab/lex/scratch/exp/temp.txt"
+file_path = "/lex/scratch/exp_dist/temp.txt"
 
 
 def evaluate(numbers):
