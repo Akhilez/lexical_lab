@@ -64,7 +64,7 @@ class SharedStateManager:
                 state["num_epochs_so_far"] = 0
                 state["num_tokens_so_far"] = 0
                 state["current_shard_index"] = {str(rank): None for rank in range(self.world_size)}
-                state["pids"] = {str(rank): None for rank in range(self.world_size)}
+                state["pids"] = {str(rank): None for rank in range(self.world_size)}  # TODO: Empty PIDs only if they don't match, right?
                 state["shards_read"] = {str(rank): [] for rank in range(self.world_size)}
                 state["available_shard_indices"] = self.get_all_shard_indices()
 

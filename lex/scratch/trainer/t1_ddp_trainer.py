@@ -91,13 +91,13 @@ optimizer = AdamW(
 )  # fused=True makes it 2ms faster
 criterion = torch.nn.CrossEntropyLoss()
 
-# if rank == 0:
-#     summary(
-#         model,
-#         torch.randint(0, vocab_size, (batch_size, max_seq_length), dtype=torch.long, device=device),
-#         device=torch.device(device),
-#         depth=10,
-#     )
+if rank == 0:
+    summary(
+        model,
+        torch.randint(0, vocab_size, (batch_size, max_seq_length), dtype=torch.long, device=device),
+        device=torch.device(device),
+        depth=10,
+    )
 
 # ============= Training ==============
 loss_agg = torch.tensor(0, device=device, dtype=torch.bfloat16)
@@ -140,7 +140,7 @@ for step in range(max_training_steps):
             dist.reduce(loss_agg, dst=0, op=dist.ReduceOp.AVG)
         if rank == 0:
             print(
-                f"step: {step:03d}, rank: {rank}, now: {datetime.now()}"
+                f"step: {step:03d}, rank: {rank}, now: {datetime.now()}, "
                 f"train loss: {loss_agg / evaluate_every:.4f} val loss: {eval_loss_agg / eval_steps:.4f} "
                 f"step time: {step_time_agg / evaluate_every:.2f}ms, "
                 f"data load time: {data_load_time_agg / evaluate_every:.2f}ms"
@@ -156,7 +156,7 @@ for step in range(max_training_steps):
         tokens = torch.tensor(tokens, dtype=torch.long)
         model.eval()
         generated = raw_model.generate(
-            tokens.to(device), length=20, top_k=50, temperature=1.0
+            tokens.to(device), length=50, top_k=50, temperature=1.0
         )
         generated = generated.tolist()
         for tokens in generated:

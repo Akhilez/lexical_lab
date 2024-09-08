@@ -101,7 +101,8 @@ for step in range(max_training_steps):
         with torch.inference_mode():
             for eval_step in range(eval_steps):
                 x, y = dataloader_val.next_batch()
-                yh = model(x.to(device)).to("cpu")
+                x, y = x.to(device), y.to(device)
+                yh = model(x)
                 loss = criterion(yh.view(-1, vocab_size), y.view(-1))
                 eval_loss_agg += loss.item()
         model.train()
