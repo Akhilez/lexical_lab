@@ -24,6 +24,7 @@ class AttentionBlock(nn.Module):
 
         self.qkv = nn.Linear(embedding_size, 3 * embedding_size)
         self.project = nn.Linear(embedding_size, embedding_size)
+        self.project.INIT_LARGE_STD = 1
 
         self.norm1 = RMSNorm(embedding_size)
 
@@ -32,6 +33,7 @@ class AttentionBlock(nn.Module):
             nn.GELU(),
             nn.Linear(embedding_size * 4, embedding_size),
         )
+        self.feedforward[2].INIT_LARGE_STD = 1
 
         self.norm2 = RMSNorm(embedding_size)
 
@@ -69,10 +71,13 @@ class AutoRegressiveLM(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embedding_size)
         self.positional = nn.Embedding(max_seq_length, embedding_size)
         self.attn_blocks = nn.ModuleList([AttentionBlock(embedding_size, n_heads) for _ in range(n_layers)])
-        self.emb2vocab = nn.Linear(embedding_size, vocab_size)
+        self.emb2vocab = nn.Linear(embedding_size, vocab_size, bias=False)
 
         # Tie weights
         self.emb2vocab.weight = self.embedding.weight
+
+        # init params
+        self.apply(self._init_weights)
 
     def forward(self, x):
         b, s = x.shape
@@ -84,7 +89,7 @@ class AutoRegressiveLM(nn.Module):
         x = self.emb2vocab(x)
         return x
 
-    def generate(self, tokens, length, top_k=50, temperature=1.0):
+    def generate(self, tokens, length, top_k=30, temperature=1.0):
         tokens = tokens.detach().clone()  # (b, s)
         for _ in range(length):
             logits = self.forward(tokens)  # (b, s, v)
@@ -96,6 +101,17 @@ class AutoRegressiveLM(nn.Module):
             tokens = torch.cat([tokens, next_token], dim=-1)
             tokens = tokens[:, -self.max_seq_length:]  # only keep the last max_seq_length tokens
         return tokens
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, 'INIT_LARGE_STD'):
+                std *= (2 * self.n_layers) ** -0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
 
 if __name__ == '__main__':
